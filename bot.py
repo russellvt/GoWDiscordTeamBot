@@ -24,7 +24,7 @@ from base_bot import BaseBot, InteractionResponseType, log
 from command_registry import COMMAND_REGISTRY, add_slash_command, get_all_commands, remove_slash_command
 from configurations import CONFIG
 from discord_wrappers import admin_required, guild_required, owner_required
-from game_constants import CAMPAIGN_COLORS, RARITY_COLORS, TASK_SKIP_COSTS
+from game_constants import CAMPAIGN_COLORS, RARITY_COLORS
 from jobs.news_downloader import NewsDownloader
 from models.ban import Ban
 from models.bookmark import BookmarkError
@@ -48,7 +48,7 @@ DEFAULT_LANGUAGE = 'Default Language'
 
 class DiscordBot(BaseBot):
     BOT_NAME = 'garyatrics.com'
-    VERSION = '0.87.14'
+    VERSION = '0.90.3'
     NEEDED_PERMISSIONS = [
         'add_reactions',
         'read_messages',
@@ -181,6 +181,7 @@ class DiscordBot(BaseBot):
             start = time.time()
             campaign_data = self.expander.get_campaign_tasks(lang)
             campaign_data['switch'] = switch
+            campaign_data['task_skip_costs'] = self.expander.task_skip_costs
             campaign_data['team'] = None
             campaign_data['week'] = _('[WEEK]', lang).format(self.expander.campaign_week)
             campaign_data['campaign_name'] = _(self.expander.campaign_name, lang)
@@ -216,11 +217,11 @@ class DiscordBot(BaseBot):
             if self.is_interaction(message):
                 await self.delete_slash_command_interaction(message)
 
-    async def render_campaign_lines(self, message, campaign_data, lang):
+    async def render_campaign_lines(self, message, campaign_data, task_skip_costs, lang):
         for category, tasks in campaign_data.items():
             category_lines = [f'**{task["title"]}**: {task["name"].replace("-->", "→")}' for task in tasks]
             color = CAMPAIGN_COLORS.get(category, self.WHITE)
-            skip_costs = f'{_("[SKIP_TASK]", lang)}: {TASK_SKIP_COSTS.get(category)} {_("[GEMS]", lang)}'
+            skip_costs = f'{_("[SKIP_TASK]", lang)}: {task_skip_costs.get(category)} {_("[GEMS]", lang)}'
             e = discord.Embed(title=f'__**{_(category, lang)}**__ ({skip_costs})',
                               description='\n'.join(category_lines), color=color)
             if any('`?`' in line for line in category_lines):
@@ -229,21 +230,28 @@ class DiscordBot(BaseBot):
 
     async def campaign(self, message, lang, tier=None, **__):
         campaign_data = self.expander.get_campaign_tasks(lang, tier)
+        task_skip_costs = self.expander.task_skip_costs
 
         if not campaign_data['has_content']:
             title = _('[NO_CURRENT_TASK]', lang)
             description = _('[CAMPAIGN_COMING_SOON]', lang)
             e = discord.Embed(title=title, description=description, color=self.WHITE)
             return await self.answer(message, e)
-        await self.render_campaign_lines(message, campaign_data['campaigns'], lang)
+        await self.render_campaign_lines(message, campaign_data['campaigns'], task_skip_costs, lang)
 
     async def reroll_tasks(self, message, lang, tier=None, **__):
         rerolls = self.expander.get_reroll_tasks(lang, tier)
-        await self.render_campaign_lines(message, rerolls, lang)
+        task_skip_costs = self.expander.task_skip_costs
+        await self.render_campaign_lines(message, rerolls, task_skip_costs, lang)
 
     async def orbs(self, message, lang, **__):
         orbs = self.expander.get_orbs(lang)
         e = self.views.render_orbs(orbs, lang)
+        return await self.answer(message, e)
+
+    async def medals(self, message, lang, **__):
+        medals = self.expander.get_medals(lang)
+        e = self.views.render_medals(medals, lang)
         return await self.answer(message, e)
 
     async def adventures(self, message, lang, **__):
@@ -514,12 +522,21 @@ class DiscordBot(BaseBot):
 
     async def pet_rescue(self, message, search_term, lang, time_left=59, mention='', **__):
         # sourcery skip: aware-datetime-for-utc
-        pets = self.expander.pets.search(search_term, lang, name_only=True, released_only=True)
+        pets = self.expander.pets.search(search_term, lang, name_only=True, released_only=True,
+                                         no_starry=True, no_golden=True)
         if len(pets) != 1:
             e = discord.Embed(title=f'Pet search for `{search_term}` yielded {len(pets)} results.',
                               description='Try again with a different search.',
                               color=self.BLACK)
             return await self.answer(message, e)
+
+        if message.guild and not message.channel.permissions_for(message.guild.me).send_messages:
+            e = discord.Embed(
+                title='Error',
+                description='✘ Bot has no permissions to send messages to this channel.',
+                colour=self.RED,
+            )
+            return await self.answer(message, embed=e)
         pet = pets[0]
         events = self.expander.get_events(lang)
         now = datetime.datetime.utcnow()
@@ -670,7 +687,7 @@ class DiscordBot(BaseBot):
         return await self.foodies(message, lang, waffle_no, max_waffles, base_url, title, subtitle)
 
     async def burgers(self, message, lang, burger_no=None, **__):
-        max_burgers = 24
+        max_burgers = 31
         title = _('[QUEST9007_OBJ1_MSG]', lang)
         subtitle = _('[3000_BATTLE15_NAME]', lang)
         base_url = 'https://garyatrics.com/images/burgers/{0:03d}.jpg'
@@ -791,8 +808,8 @@ class DiscordBot(BaseBot):
         await self.answer(message, e)
 
     @guild_required
-    async def edit_tower_floor(self, message, floor, scroll_ii, scroll_iii, scroll_iv, scroll_v, scroll_vi, lang,
-                               **__):
+    async def edit_tower_floor(self, message, floor, scroll_ii, scroll_iii, scroll_iv, scroll_v, scroll_vi=None,
+                               lang=None, **__):
 
         rooms = ('ii', 'iii', 'iv', 'v', 'vi')
         scrolls = (scroll_ii, scroll_iii, scroll_iv, scroll_v, scroll_vi)
@@ -1017,13 +1034,13 @@ class DiscordBot(BaseBot):
             if not await self.is_writable(channel):
                 log.debug(f'Channel "{channel}" is not writable.')
                 continue
-            log.debug(f'[{i + 1}/{len(self.subscriptions)}] Sending [{article["platform"]}] {article["title"]} '
+            log.debug(f'[{i + 1}/{len(relevant_subscriptions)}] Sending [{article["platform"]}] {article["title"]} '
                       f'to {channel.guild.name}/{channel.name}.')
             for e in embeds:
                 try:
                     await channel.send(embed=e)
                 except discord.DiscordException as ex:
-                    log.error(f'Could not send out news {e.fields:r}, exception follows')
+                    log.error(f'Could not send out news to "{channel}", exception follows')
                     log.exception(ex)
 
     @guild_required

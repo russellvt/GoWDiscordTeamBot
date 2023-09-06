@@ -54,6 +54,7 @@ class GameData:
         self.soulforge_weapons = []
         self.campaign_tasks = {}
         self.campaign_data = {}
+        self.campaign_skip_costs = {}
         self.campaign_rerolls = {}
         self.campaign_week = None
         self.artifact_id = None
@@ -227,6 +228,8 @@ class GameData:
                 'colors': sorted(colors),
                 'description': troop['Description'],
                 'spell_id': troop['SpellId'],
+                'has_shiny': troop.get('HasShiny', False),
+                'shiny_spell_id': troop.get('ShinySpellId'),
                 'traits': [self.traits.get(trait, NO_TRAIT) for trait in
                            troop['Traits']],
                 'rarity': troop['TroopRarity'],
@@ -345,6 +348,17 @@ class GameData:
             reroll_list = [self.transform_campaign_task(task, week) for task in rerolls[f'Campaign{level}']]
             self.campaign_rerolls[level.lower()] = reroll_list
         self.campaign_tasks['kingdom'] = self.kingdoms[event_kingdom_id]
+        self.populate_campaign_skip_costs()
+
+    def populate_campaign_skip_costs(self):
+        level_names = {
+            'CampaignBronze': '[MEDAL_LEVEL_0]',
+            'CampaignSilver': '[MEDAL_LEVEL_1]',
+            'CampaignGold': '[MEDAL_LEVEL_2]',
+        }
+        for level, cost in self.user_data['pEconomyModel']['CampaignTaskSkipCost'].items():
+            level_name = level_names[level]
+            self.campaign_skip_costs[level_name] = cost
 
     def transform_campaign_task(self, task, week):
         extra_data = {}
@@ -520,6 +534,7 @@ class GameData:
 
         faction_weapon_overrides = {
             3053: 1274,
+            3054: 1391,
             3069: 1272,
         }
         for faction_id, faction_data in factions:
@@ -901,6 +916,8 @@ class GameData:
                 minimum_tier = max(minimum_tier, 3)
             self.weekly_event['minimum_tier'] = minimum_tier
 
+        battles = [transform_battle(b) for b in self.event_raw_data.get('BattleArray', [])]
+
         self.weekly_event = {
             'id': self.event_raw_data['Id'],
             'shop_tiers': [self.store_data[gacha] for gacha in self.event_raw_data.get('GachaItems', [])
@@ -920,7 +937,7 @@ class GameData:
             'medal': self.event_raw_data.get('MedalId'),
             'currencies': extract_currencies(self.event_raw_data),
             'rewards': extract_rewards(self.event_raw_data),
-            'battles': [transform_battle(b) for b in self.event_raw_data.get('BattleArray', [])],
+            'battles': battles,
             'start': datetime.datetime.utcfromtimestamp(self.event_raw_data['StartDate']),
             'end': datetime.datetime.utcfromtimestamp(self.event_raw_data['EndDate']),
             'first_battles': get_first_battles(self.event_raw_data),

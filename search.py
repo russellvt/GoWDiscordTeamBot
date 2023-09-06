@@ -16,7 +16,7 @@ from game_constants import COLORS, EVENT_TYPES, GEM_TUTORIAL_IDS, RARITY_COLORS,
     UNDERWORLD_SOULFORGE_REQUIREMENTS, WEAPON_RARITIES
 from models.bookmark import Bookmark
 from models.toplist import Toplist
-from util import dig, extract_search_tag, get_next_monday_in_locale, translate_day
+from util import batched, dig, extract_search_tag, get_next_monday_in_locale, translate_day
 
 WEEK_DAY_FORMAT = '%b %d'
 
@@ -68,6 +68,7 @@ class TeamExpander:
         self.campaign_week = world.campaign_week
         self.campaign_name = world.campaign_name
         self.campaign_tasks = world.campaign_tasks
+        self.task_skip_costs = world.campaign_skip_costs
         self.reroll_tasks = world.campaign_rerolls
         self.soulforge = world.soulforge
         self.summons = world.summons
@@ -181,6 +182,8 @@ class TeamExpander:
 
     @staticmethod
     def search_item(search_term, lang, items, lookup_keys, translator, sort_by='name'):
+        if search_term.startswith('#'):
+            search_term = search_term[1:]
         if search_term.isdigit():
             if item := items.get(int(search_term)):
                 result = item.copy()
@@ -216,6 +219,7 @@ class TeamExpander:
             'type',
             'roles',
             'spell.description',
+            'shiny',
         ]
         return self.search_item(search_term, lang,
                                 items=self.troops,
@@ -223,9 +227,7 @@ class TeamExpander:
                                 translator=self.translate_troop)
 
     def translate_troop(self, troop, lang):
-        troop['name'] = _(troop['name'], lang)
-        if self.is_untranslated(troop['name']):
-            troop['name'] = troop['reference_name']
+        troop['name'] = _(troop['name'], lang, default=troop['reference_name'])
         troop['description'] = _(troop['description'], lang).replace('widerbeleben',
                                                                      'wiederbeleben')
         troop['color_code'] = "".join(troop['colors'])
@@ -254,6 +256,9 @@ class TeamExpander:
         troop['spell_title'] = _('[TROOPHELP_SPELL0]', lang)
         self.translate_traitstones(troop, lang)
         troop['bonuses_title'] = _('[BONUSES]', lang)
+        if troop['has_shiny']:
+            troop['shiny'] = _('[SHINY_LEVEL_HINT_FIND_TOKENS]', lang)
+            troop['shiny_spell'] = self.translate_spell(troop['shiny_spell_id'], lang)
 
     @staticmethod
     def translate_traitstones(item, lang):
@@ -787,7 +792,7 @@ class TeamExpander:
         if entry['type'] == '[INVASION]' and entry['gacha'] and entry['gacha'] in self.troops:
             troop = self.troops[entry['gacha']]
             troop_name = _(troop['name'], lang)
-            entry['kingdom_id'] = troop['kingdom_id']
+            entry['kingdom_id'] = troop.get('kingdom_id', '`?`')
             troop_types = [_(f'[TROOPTYPE_{tt.upper()}]', lang) for tt in troop['types']]
             entry['extra_info'] = f'{troop_name} ({", ".join(troop_types)})'
         elif entry['type'] in ('[WEEKLY_EVENT]', '[RARITY_5]') and entry['gacha'] and entry['gacha'] in self.troops:
@@ -1314,7 +1319,12 @@ class TeamExpander:
         def translate_battle(b):
             result = b.copy()
             result['name'] = b['names'].get(lang)
+            result['troops'] = []
             del result['names']
+            for troop_id in b['ids']:
+                troop = self.troops.get(troop_id).copy()
+                self.translate_troop(troop, lang)
+                result['troops'].append(troop)
             return result
 
         troop_restriction_types = (
@@ -1329,12 +1339,13 @@ class TeamExpander:
         if event['weapon_id']:
             event['weapon'] = _(self.weapons.get(event['weapon_id'], {'name': ''})['name'], lang)
 
+        event['battles_title'] = _('[BATTLES]', lang)
         new_battles = []
         for battle in event['battles']:
             tb = translate_battle(battle)
-            if tb not in new_battles:
+            if tb['name'] and tb not in new_battles:
                 new_battles.append(tb)
-        event['battles'] = new_battles
+        event['battles'] = sorted(new_battles, key=operator.itemgetter('raw_rarity'), reverse=True)
 
         locale = translations.LANGUAGE_CODE_MAPPING.get(lang, lang)
         locale = translations.LOCALE_MAPPING.get(locale, 'en_GB') + '.UTF8'
@@ -1593,4 +1604,28 @@ class TeamExpander:
                     'emoji': orb['emoji']
                 }
             )
+        return result
+
+    def get_medals(self, lang):
+        medal_id = 20000
+        result = {
+            'badges': [],
+            'medals': [],
+            'medals_title': _('[MEDALS]', lang),
+            'badges_title': _('[REWARD_HELP_HEADING_MEDAL_1]', lang),
+        }
+        while True:
+            if f'[WONDER_{medal_id}_NAME]' not in t.all_translations[lang]:
+                break
+            result['badges'].append({
+                'name': _(f'[WONDER_{medal_id + 1}_NAME]', lang),
+                'description': _(f'[WONDER_{medal_id + 1}_DESC]', lang)
+            })
+            result['medals'].append({
+                'name': _(f'[WONDER_{medal_id + 2}_NAME]', lang),
+                'description': _(f'[WONDER_{medal_id + 2}_DESC]', lang)
+            })
+            medal_id += 3
+        result['badges'] = list(batched(result['badges'], 10))
+        result['medals'] = list(batched(result['medals'], 10))
         return result

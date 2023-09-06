@@ -1,10 +1,13 @@
 import datetime
 import logging
 import os
+import sys
+import traceback
 from enum import Enum
 
 import aiohttp
 import discord
+import requests
 
 from configurations import CONFIG
 from discord_fake_classes import FakeMessage
@@ -215,6 +218,26 @@ class BaseBot(discord.Client):
 
     async def on_guild_remove(self, guild):
         log.debug(f'Guild {guild.name} (id {guild.id}) kicked me out. Now in {len(self.guilds)} guilds.')
+
+    async def on_error(self, event, *args, **kwargs):
+        if host := CONFIG.get('ntfy_host'):
+            exception = sys.exc_info()
+            data_lines = [
+                f'# Bot:{self.user.display_name}',
+                f'{exception[0].__name__}: {exception[1]}',
+                '---',
+                '```',
+                ''.join(traceback.format_tb(exception[2])),
+                '```',
+            ]
+
+            requests.post(host, data='\n'.join(data_lines), headers={
+                'Title': f'Exception in {event}',
+                'Priority': 'urgent',
+                'Tags': 'rotating_light',
+                'Markdown': 'yes',
+            }, auth=(CONFIG.get('ntfy_user'), CONFIG.get('ntfy_pass')))
+        await super().on_error(event, *args, **kwargs)
 
     async def update_base_emojis(self):
         for guild_id in CONFIG.get('base_guilds'):
