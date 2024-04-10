@@ -774,6 +774,7 @@ class GameData:
             '[TROOP]': '{data[name]}',
             '[CHAOSSHARD]': '[N_CHAOS_SHARD]',
             '[DEEDBOOK]': '[N_DEEDBOOKS{data:02d}]',
+            '[PET]': '[PET_RESCUE_PET]',
         }
         return reward_translation.get(reward_type, reward_type).format(data=data)
 
@@ -928,7 +929,7 @@ class GameData:
             'lore': extract_lore(self.event_raw_data),
             'restrictions': extract_restrictions(self.event_raw_data),
             'troop_id': self.event_raw_data.get('GachaTroop'),
-            'troop': self.troops[self.event_raw_data.get('GachaTroop', 6000)]['name']
+            'troop': self.troops.get(self.event_raw_data.get('GachaTroop', 6000), {'name': '`?`'})['name']
             if self.event_raw_data.get('GachaTroop') else None,
             'color': COLORS[self.event_raw_data.get('Color')] if 'Color' in self.event_raw_data else None,
             'weapon_id': self.event_raw_data.get('EventWeaponId'),

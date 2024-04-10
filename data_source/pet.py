@@ -46,6 +46,10 @@ class PetContainer(BaseGameDataContainer):
             'kingdom_id': data['KingdomId'],
             'kingdom_name': f'[{data["KingdomId"]}_NAME]',
             'kingdom_title': '[KINGDOM]',
+            'region_title': '[REGION_BONUS]',
+            'region_sentence': '[PVP_BONUS_REGION_N]',
+            'region_id': data.get('RegionId'),
+            'region_name': f'[PVP_REGION_{data.get("RegionId")}]' if data.get('RegionId') else '',
         }
         self.populate_effect_data()
         self.translate()
@@ -136,6 +140,8 @@ class PetContainer(BaseGameDataContainer):
         for translation in self.translations.values():
             if 'effect_replacement' in translation:
                 for before, after in translation.data['effect_replacement'].items():
+                    if after is None:
+                        after = ''
                     translation.data['effect'] = translation.data['effect'].replace(before, after)
 
     def fill_untranslated_kingdom_name(self, kingdom_id, kingdom_reference_name):
