@@ -10,6 +10,8 @@ from search import _
 from translations import LANGUAGE_CODE_MAPPING
 from util import chunks, flatten
 
+CACHE_VERSION = "1"
+
 
 class Views:
     WHITE = discord.Color.from_rgb(254, 254, 254)
@@ -60,7 +62,7 @@ class Views:
         rarity_color = RARITY_COLORS.get(weapon['raw_rarity'], RARITY_COLORS['Mythic'])
         color = discord.Color.from_rgb(*rarity_color)
         e = discord.Embed(title='Weapon search found one exact match', color=color)
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Spells/Cards_{weapon["spell_id"]}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Spells/Cards_{weapon["spell_id"]}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         if shortened:
             return self.render_embed(e, 'weapon_shortened.jinja', weapon=weapon)
@@ -73,13 +75,13 @@ class Views:
     def render_affix(self, affix, *__):
         e = discord.Embed(title='Affix search found one exact match', color=self.WHITE)
         affix['weapons'] = [f'{w["name"]} `#{w["id"]}`' for w in affix['weapons']]
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Ingots/Ingots_AnvilIcon_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Ingots/Ingots_AnvilIcon_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         return self.render_embed(e, 'affix.jinja', affix=affix)
 
     def render_pet(self, pet, shortened=False, lang='en'):
         e = discord.Embed(title='Pet search found one exact match', color=self.WHITE)
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Pets/Cards_{pet.filename}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Pets/Cards_{pet.filename}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         if shortened:
             return self.render_embed(e, 'pet_shortened.jinja', pet=pet)
@@ -94,7 +96,7 @@ class Views:
         if 'Boss' in troop['raw_types']:
             rarity_color = RARITY_COLORS['Doomed']
         e = discord.Embed(title='Troop search found one exact match', color=discord.Color.from_rgb(*rarity_color))
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Troops/Cards_{troop["filename"]}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Troops/Cards_{troop["filename"]}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         if shortened:
             return self.render_embed(e, 'troop_shortened.jinja', troop=troop)
@@ -107,7 +109,7 @@ class Views:
     def render_traitstone(self, traitstone, shortened, __):
         e = discord.Embed(color=self.WHITE)
         e.title = traitstone['name']
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Runes_Rune{traitstone["id"]:02d}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Runes_Rune{traitstone["id"]:02d}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         troops = ['{0} ({1})'.format(*troop) for troop in traitstone['troops']]
         chunk_size = 50
@@ -141,7 +143,7 @@ class Views:
         color = discord.Color.from_rgb(*RARITY_COLORS['Mythic'])
         e = discord.Embed(color=color)
         if team['banner']:
-            thumbnail_url = f'{CONFIG.get("graphics_url")}/Banners/Banners_{team["banner"]["filename"]}_full.png'
+            thumbnail_url = f'{CONFIG.get("graphics_url")}/Banners/Banners_{team["banner"]["filename"]}_full.png?t={CACHE_VERSION}'
             e.set_thumbnail(url=thumbnail_url)
 
         if shortened:
@@ -164,7 +166,7 @@ class Views:
     def render_kingdom(self, kingdom, shortened, lang):
         e = discord.Embed(title='Kingdom search found one exact match', color=self.WHITE)
         underworld = 'underworld' if kingdom['underworld'] else ''
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Maplocations{underworld}_{kingdom["filename"]}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Maplocations{underworld}_{kingdom["filename"]}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         if 'release_date' in kingdom:
             e.set_footer(text=_('[RELEASE_DATE]', lang))
@@ -180,7 +182,7 @@ class Views:
 
     def render_trait(self, trait, *__):
         e = discord.Embed(title='Trait search found one exact match', color=self.WHITE)
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Troopcardall_Traits/{trait["image"]}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Troopcardall_Traits/{trait["image"]}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         trait['thumbnail'] = thumbnail_url
         result = self.render_embed(e, 'trait.jinja', trait=trait)
@@ -191,7 +193,7 @@ class Views:
 
     def render_class(self, _class, shortened, __):
         e = discord.Embed(title='Class search found one exact match', color=self.WHITE)
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Classes_{_class["code"]}_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Classes_{_class["code"]}_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         if shortened:
             return self.render_embed(e, 'class_shortened.jinja', _class=_class)
@@ -528,7 +530,7 @@ class Views:
 
     def render_ban_message(self, ban):
         e = discord.Embed(title='Invalid Server', color=self.RED)
-        thumbnail_url = f'{CONFIG.get("graphics_url")}/Liveevents/Liveeventscurrencies_skull_full.png'
+        thumbnail_url = f'{CONFIG.get("graphics_url")}/Liveevents/Liveeventscurrencies_skull_full.png?t={CACHE_VERSION}'
         e.set_thumbnail(url=thumbnail_url)
         e.set_footer(text='Ban time')
         e.timestamp = ban['ban_time']
@@ -540,7 +542,7 @@ class Views:
         if current_event['lore']:
             e.add_field(name=f'__{_("[LORE]", lang)}__', value=current_event['lore'])
         if 'kingdom' in current_event:
-            thumbnail_url = f'{CONFIG.get("graphics_url")}/Maplocations_{current_event["kingdom"]["filename"]}_full.png'
+            thumbnail_url = f'{CONFIG.get("graphics_url")}/Maplocations_{current_event["kingdom"]["filename"]}_full.png?t={CACHE_VERSION}'
             e.set_thumbnail(url=thumbnail_url)
         event_ending = {
             'en': 'Event ending on',
