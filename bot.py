@@ -10,10 +10,10 @@ import urllib
 from functools import partial, partialmethod
 from typing import Optional
 
+import aiohttp
 import discord
 import humanize
 import prettytable
-import requests
 
 import bot_tasks
 import graphic_campaign_preview
@@ -48,7 +48,7 @@ DEFAULT_LANGUAGE = 'Default Language'
 
 class DiscordBot(BaseBot):
     BOT_NAME = 'garyatrics.com'
-    VERSION = '0.91.0'
+    VERSION = '0.91.9'
     NEEDED_PERMISSIONS = [
         'add_reactions',
         'read_messages',
@@ -74,6 +74,7 @@ class DiscordBot(BaseBot):
         self.pet_rescues = []
         self.pet_rescue_config: Optional[PetRescueConfig] = None
         self.server_status_cache = {'last_updated': datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)}
+        self.session = None
 
     async def on_guild_join(self, guild):
         await super().on_guild_join(guild)
@@ -307,10 +308,16 @@ class DiscordBot(BaseBot):
     async def soulforge(self, message, lang, **kwargs):
         title, craftable_items = self.expander.get_soulforge(lang)
         e = discord.Embed(title=title, description=_('[WEAPON_AVAILABLE_FROM_SOULFORGE]', lang), color=self.WHITE)
+
+        def time_left(r):
+            if r["end"] is None or r["start"] is None:
+                return ""
+            days = (r["end"] - r["start"]).days
+            return f'`{days} {_("[DAYS]", lang)}`'
         for category, recipes in craftable_items.items():
             recipes = sorted(recipes, key=operator.itemgetter('rarity_number', 'id'), reverse=True)
             message_lines = '\n'.join(
-                [f'{self.my_emojis.get(r["raw_rarity"])} {r["name"]} `#{r["id"]}`' for r in recipes])
+                [f'{self.my_emojis.get(r["raw_rarity"])} {r["name"]} {time_left(r)}' for r in recipes])
             e.add_field(name=category, value=message_lines, inline=True)
         await self.answer(message, e)
         if kwargs.get('lengthened'):
@@ -363,17 +370,18 @@ class DiscordBot(BaseBot):
         e = discord.Embed(title=_('[PVPSTATS]', lang), description='<https://garyatrics.com/>', color=color)
         members = sum(g.member_count for g in self.guilds)
 
-        collections = [
-            f'**{_("[GUILD]", lang)} {_("[AMOUNT]", lang)}**: {len(self.guilds)}',
-            f'**{_("[PLAYER]", lang)} {_("[AMOUNT]", lang)}**: {members}',
-            f'**{_("[NEWS]", lang)} {_("[CHANNELS]", lang)} (PC)**: '
-            f'{sum(s.get("pc", True) for s in self.subscriptions)}',
-            f'**{_("[NEWS]", lang)} {_("[CHANNELS]", lang)} (Switch)**: '
-            f'{sum(s.get("switch", True) for s in self.subscriptions)}',
-            f'**{_("[PETRESCUE]", lang)} ({_("[JUST_NOW]", lang)})**: {len(self.pet_rescues)}',
-            f'**{_("[PETRESCUE]", lang)} ({_("[TRAIT_ALL]", lang)})**: {PetRescue.get_amount()}',
-        ]
-        e.add_field(name=_("[COLLECTION]", lang), value='\n'.join(collections))
+        with HumanizeTranslator(LANGUAGE_CODE_MAPPING.get(lang, lang)) as _t:
+            collections = [
+                f'**{_("[GUILD]", lang)} {_("[AMOUNT]", lang)}**: {humanize.intcomma(len(self.guilds))}',
+                f'**{_("[PLAYER]", lang)} {_("[AMOUNT]", lang)}**: {humanize.intcomma(members)}',
+                f'**{_("[NEWS]", lang)} {_("[CHANNELS]", lang)} (PC)**: '
+                f'{humanize.intcomma(sum(s.get("pc", True) for s in self.subscriptions))}',
+                f'**{_("[NEWS]", lang)} {_("[CHANNELS]", lang)} (Switch)**: '
+                f'{humanize.intcomma(sum(s.get("switch", True) for s in self.subscriptions))}',
+                f'**{_("[PETRESCUE]", lang)} ({_("[JUST_NOW]", lang)})**: {humanize.intcomma(len(self.pet_rescues))}',
+                f'**{_("[PETRESCUE]", lang)} ({_("[TRAIT_ALL]", lang)})**: {humanize.intcomma(PetRescue.get_amount())}',
+            ]
+            e.add_field(name=_("[COLLECTION]", lang), value='\n'.join(collections))
 
         await self.answer(message, e)
 
@@ -400,6 +408,15 @@ class DiscordBot(BaseBot):
     async def heroic_gems(self, message, lang, **__):
         gems = self.expander.get_heroic_gems(lang)
         e = self.views.render_heroic_gems(gems, lang)
+        if len(e.fields) > 25:
+            all_fields = e.fields
+            e.clear_fields()
+            [e.add_field(name=field.name, value=field.value, inline=field.inline) for field in all_fields[:25]]
+            await self.answer(message, e)
+            e.clear_fields()
+            [e.add_field(name=field.name, value=field.value, inline=field.inline) for field in all_fields[25:]]
+            await self.answer(message, e)
+            return
         await self.answer(message, e)
 
     async def color_kingdoms(self, message, lang, **__):
@@ -523,7 +540,7 @@ class DiscordBot(BaseBot):
     async def pet_rescue(self, message, search_term, lang, time_left=59, mention='', **__):
         # sourcery skip: aware-datetime-for-utc
         pets = self.expander.pets.search(search_term, lang, name_only=True, released_only=True,
-                                         no_starry=True, no_golden=True)
+                                         no_starry=True, no_golden=False)
         if len(pets) != 1:
             e = discord.Embed(title=f'Pet search for `{search_term}` yielded {len(pets)} results.',
                               description='Try again with a different search.',
@@ -687,16 +704,17 @@ class DiscordBot(BaseBot):
         return await self.foodies(message, lang, waffle_no, max_waffles, base_url, title, subtitle)
 
     async def burgers(self, message, lang, burger_no=None, **__):
-        max_burgers = 31
-        title = _('[QUEST9007_OBJ1_MSG]', lang)
+        max_burgers = 32
+        title = _('[QUEST9002_OBJ1_MSG]', lang)
         subtitle = _('[3000_BATTLE15_NAME]', lang)
         base_url = 'https://garyatrics.com/images/burgers/{0:03d}.jpg'
         return await self.foodies(message, lang, burger_no, max_burgers, base_url, title, subtitle)
 
     async def memes(self, message, lang, meme_no=None, **__):
         base_url = 'https://garyatrics.com/images/memes'
-        r = requests.get(f'{base_url}/index.txt')
-        available_memes = [m for m in r.text.split('\n') if m]
+        async with self.session.get(f'{base_url}/index.txt') as r:
+            content = await r.text()
+            available_memes = [m for m in content.split('\n') if m]
         random_title = _('[SPELLEFFECT_CAUSERANDOM]', lang)
         if meme_no and 1 <= int(meme_no) <= len(available_memes):
             meme = available_memes[int(meme_no) - 1]
@@ -719,11 +737,11 @@ class DiscordBot(BaseBot):
         now = datetime.datetime.now(datetime.timezone.utc)
         if self.server_status_cache['last_updated'] <= now - datetime.timedelta(seconds=30):
             async with message.channel.typing():
-                r = requests.get('https://status.infinityplustwo.net/status_v2.txt')
-                await asyncio.sleep(2)
-                status = r.json() if r.status_code == 200 else {'pGameArray': []}
-                self.server_status_cache['status'] = status['pGameArray'][:-1]
-                self.server_status_cache['last_updated'] = now
+                async with self.session.get('https://status.infinityplustwo.net/status_v2.txt') as r:
+                    await asyncio.sleep(2)
+                    status = await r.json(content_type='text/plain') if r.ok else {'pGameArray': []}
+                    self.server_status_cache['status'] = status['pGameArray'][:-1]
+                    self.server_status_cache['last_updated'] = now
         e = self.views.render_server_status(self.server_status_cache)
         await self.answer(message, e)
 
@@ -1184,11 +1202,14 @@ class DiscordBot(BaseBot):
     task_check_for_news = bot_tasks.task_check_for_news
     task_check_for_data_updates = bot_tasks.task_check_for_data_updates
     task_update_pet_rescues = bot_tasks.task_update_pet_rescues
+    task_update_status = bot_tasks.task_report_status
 
     async def setup_hook(self):
         self.task_check_for_news.start()
         self.task_check_for_data_updates.start()
         self.task_update_pet_rescues.start()
+        self.task_update_status.start()
+        self.session = aiohttp.ClientSession()
 
 
 if __name__ == '__main__':

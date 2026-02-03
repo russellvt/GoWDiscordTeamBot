@@ -7,7 +7,6 @@ from enum import Enum
 
 import aiohttp
 import discord
-import requests
 
 from configurations import CONFIG
 from discord_fake_classes import FakeMessage
@@ -20,7 +19,7 @@ formatter = logging.Formatter('%(asctime)-15s [%(levelname)s] %(message)s')
 handler = logging.StreamHandler()
 handler.setFormatter(formatter)
 handler.setLevel(LOGLEVEL)
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 log.setLevel(logging.DEBUG)
 log.addHandler(handler)
@@ -231,17 +230,21 @@ class BaseBot(discord.Client):
                 '```',
             ]
 
-            requests.post(host, data='\n'.join(data_lines), headers={
+            with self.session.post(host, data='\n'.join(data_lines), headers={
                 'Title': f'Exception in {event}',
                 'Priority': 'urgent',
                 'Tags': 'rotating_light',
                 'Markdown': 'yes',
-            }, auth=(CONFIG.get('ntfy_user'), CONFIG.get('ntfy_pass')))
+            }, auth=(CONFIG.get('ntfy_user'), CONFIG.get('ntfy_pass'))):
+                pass
         await super().on_error(event, *args, **kwargs)
 
     async def update_base_emojis(self):
         for guild_id in CONFIG.get('base_guilds'):
             await self.fetch_emojis_from_guild(guild_id)
+        # TODO discord.py 2.5
+        """for emoji in (await self.fetch_application_emojis()):
+            self.my_emojis[emoji.name] = str(emoji)"""
 
     async def fetch_emojis_from_guild(self, guild_id):
         guild = self.get_guild(guild_id)

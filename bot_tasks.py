@@ -8,8 +8,15 @@ from game_assets import GameAssets
 from base_bot import log
 from configurations import CONFIG
 from jobs.news_downloader import NewsDownloader
+from jobs.status_reporter import StatusReporter
 from search import TeamExpander, update_translations
 from translations import LANG_FILES
+
+
+@tasks.loop(minutes=1, reconnect=True)
+async def task_report_status(discord_client):
+    status = StatusReporter()
+    await status.update(discord_client)
 
 
 @tasks.loop(minutes=1, reconnect=True)
@@ -27,8 +34,8 @@ async def task_check_for_news(discord_client):
     lock = asyncio.Lock()
     async with lock:
         try:
-            downloader = NewsDownloader()
-            downloader.process_news_feed()
+            downloader = NewsDownloader(discord_client.session)
+            await downloader.process_news_feed()
             await discord_client.show_latest_news()
         except Exception as e:
             log.error('Could not update news. Stacktrace follows.')

@@ -3,6 +3,8 @@ import math
 import operator
 import re
 
+import arrow
+
 from configurations import CONFIG
 from data_source import Pets
 from event_helpers import extract_currencies, extract_lore, extract_name, get_first_battles, roles_translation, \
@@ -47,7 +49,7 @@ class GameData:
             '`?`': {'name': '[REQUIREMENTS_NOT_MET]', 'underworld': False, 'filename': None, 'id': '`?`',
                     'location': None, 'reference_name': '`?`'}}
         self.pet_effects = ()
-        self.pets: Pets = None
+        self.pets: Pets | None = None
         self.talent_trees = {}
         self.spoilers = []
         self.events = []
@@ -225,6 +227,7 @@ class GameData:
                 'id': troop['Id'],
                 'name': troop['Name'],
                 'reference_name': troop['ReferenceName'],
+                'immortal': troop.get('Immortal', False),
                 'colors': sorted(colors),
                 'description': troop['Description'],
                 'spell_id': troop['SpellId'],
@@ -232,6 +235,8 @@ class GameData:
                 'shiny_spell_id': troop.get('ShinySpellId'),
                 'traits': [self.traits.get(trait, NO_TRAIT) for trait in
                            troop['Traits']],
+                'immortal_traits': [self.traits.get(trait, NO_TRAIT) for trait in
+                                    troop.get('ImmortalTraits', [])],
                 'rarity': troop['TroopRarity'],
                 'types': [troop['TroopType']],
                 'roles': troop['TroopRoleArray'],
@@ -536,6 +541,7 @@ class GameData:
             3053: 1274,
             3054: 1391,
             3069: 1272,
+            3068: 1295,
         }
         for faction_id, faction_data in factions:
             kingdom_id = faction_data['linked_kingdom_id']
@@ -613,8 +619,8 @@ class GameData:
                 'name': recipe['Name'],
                 'id': recipe_id,
                 'costs': recipe['Source'],
-                'start': recipe['StartDate'],
-                'end': recipe['EndDate'],
+                'start': arrow.get(recipe['StartDate']).datetime if recipe['StartDate'] else None,
+                'end': arrow.get(recipe['EndDate']).datetime if recipe['EndDate'] else None,
                 'rarity': recipe['rarity'],
             })
         for colour, troops in enumerate(self.soulforge_raw_data.get('pSummonTroopArray', [])):
@@ -775,6 +781,8 @@ class GameData:
             '[CHAOSSHARD]': '[N_CHAOS_SHARD]',
             '[DEEDBOOK]': '[N_DEEDBOOKS{data:02d}]',
             '[PET]': '[PET_RESCUE_PET]',
+            '[CURSEDRUNE]': '[CURSED_RUNES]',
+            '[EPICVAULTKEY]': '[EPIC_VAULT_KEYS]',
         }
         return reward_translation.get(reward_type, reward_type).format(data=data)
 

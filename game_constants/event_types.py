@@ -19,4 +19,7 @@ EVENT_TYPES = {
     15: '[LEGENDS_REBORN]',
     16: '[HOLIDAYEVENT_TEAMS]',
     17: '[UNDERSPIRE]',
+    18: '[PVP_SEASON]',
+    19: '[WEEKLY_EVENT]',  # SpecialWeeklyEvent
+    20: '[CAMPAIGN]',  # CampaignV2
 }
